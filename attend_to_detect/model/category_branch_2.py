@@ -4,8 +4,10 @@
 from operator import mul
 from functools import reduce
 import torch
+from torch import nn
 from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant, orthogonal
+from torch.nn.functional import softmax, relu
 import numpy as np
 
 from .attention import GaussianAttention
@@ -23,19 +25,122 @@ def make_me_a_list(with_that, and_this_long=1):
     return with_that
 
 
-class CategoryBranch2(torch.nn.Module):
+def init_gru_cell(module, init):
+    init(module.weight_ih.data)
+    init(module.weight_hh.data)
+    constant(module.bias_ih.data, 0)
+    constant(module.bias_hh.data, 0)
 
+
+class GRUDecoder(nn.Module):
+    def __init__(self, decoder_dim, output_classes, context_dim,
+                 monotonic_attention=False,
+                 attention_bias=True, init=xavier_normal):
+        super(GRUDecoder, self).__init__()
+        self.attention = GaussianAttention(
+            dim=self.decoder_dim,
+            monotonic=monotonic_attention, bias=attention_bias)
+
+        self.decoder_dim = decoder_dim
+        self.output_classes = output_classes
+
+        self.decoder_cell = nn.GRUCell(context_dim, self.decoder_dim)
+        self.output_linear = nn.Linear(self.decoder_dim, self.output_classes)
+        self.context_to_state = nn.Linear(context_dim, self.decoder_dim)
+
+        self.initialize(init)
+
+    def get_initial_decoder_state(self, context_forward, context_backward):
+        state = self.input_to_output(
+            torch.cat([context_forward[:, -1, :],
+                       context_backward[:, 0, :]], -1))
+        return state
+
+    def initialize(self, init):
+        init_gru_cell(self.decoder_cell, init)
+        xavier_normal(self.output_linear.weight.data)
+        constant(self.output_linear.bias.data, 0)
+
+        xavier_normal(self.context_to_state.weight.data)
+        constant(self.context_to_state.bias.data, 0)
+
+    def forward(self, context_forward, context_backward, output_len):
+        hidden = self.get_initial_decoder_state(
+            context_forward, context_backward)
+
+        context = torch.cat([context_forward, context_backward], -1)
+        kappa = self.attention.get_initial_kappa(context)
+
+        out_hidden = []
+        out_weights = []
+
+        for i in range(output_len):
+            attended, weights, kappa = self.attention(hidden, context, kappa)
+            hidden = self.decoder_cell(attended, hidden)
+
+            out_hidden.append(softmax(self.output_linear(hidden).unsqueeze(1)))
+            out_weights.append(weights)
+        return torch.cat(out_hidden, 1), out_weights
+
+
+class MLPDecoder(nn.Module):
+    def __init__(self, decoder_dim, output_classes, context_dim,
+                 monotonic_attention=False,
+                 attention_bias=True, init=xavier_normal):
+        super(MLPDecoder, self).__init__()
+        self.decoder_dim = decoder_dim
+        self.output_classes = output_classes
+
+        self.attention = GaussianAttention(
+            dim=self.decoder_dim,
+            monotonic=monotonic_attention, bias=attention_bias)
+
+        self.decoder_linear = nn.Linear(context_dim, self.decoder_dim)
+        self.output_linear = nn.Linear(self.decoder_dim, self.output_classes)
+        self.context_to_state = nn.Linear(context_dim, self.decoder_dim)
+
+        self.initialize(init)
+
+    def get_initial_decoder_state(self, context_forward, context_backward):
+        state = self.context_to_state(
+            torch.cat([context_forward[:, -1, :],
+                       context_backward[:, 0, :]], -1))
+        return state
+
+    def initialize(self, init):
+        xavier_normal(self.decoder_linear.weight.data)
+        constant(self.decoder_linear.bias.data, 0)
+
+        xavier_normal(self.output_linear.weight.data)
+        constant(self.output_linear.bias.data, 0)
+
+        xavier_normal(self.context_to_state.weight.data)
+        constant(self.context_to_state.bias.data, 0)
+
+    def forward(self, context_forward, context_backward, output_len):
+        hidden = self.get_initial_decoder_state(
+            context_forward, context_backward)
+
+        context = torch.cat([context_forward, context_backward], -1)
+        kappa = self.attention.get_initial_kappa(context)
+
+        attended, weights, kappa = self.attention(hidden, context, kappa)
+        hidden = relu(self.decoder_linear(attended))
+
+        output = self.output_linear(hidden).unsqueeze(1)
+        return output, weights
+
+
+class CNNRNNEncoder(nn.Module):
     def __init__(self,
                  cnn_channels_in, cnn_channels_out,
                  cnn_kernel_sizes, cnn_strides, cnn_paddings, cnn_activations,
                  max_pool_kernels, max_pool_strides, max_pool_paddings,
                  rnn_input_size, rnn_out_dims, rnn_activations,
                  dropout_cnn, dropout_rnn_input, dropout_rnn_recurrent,
-                 rnn_subsamplings, decoder_dim, output_classes,
-                 monotonic_attention=False, attention_bias=True,
-                 init=xavier_normal):
+                 rnn_subsamplings, init=xavier_normal):
 
-        super(CategoryBranch2, self).__init__()
+        super(CNNRNNEncoder, self).__init__()
 
         if type(cnn_channels_out) is not list:
             raise AttributeError('Channels out must be a list of len '
@@ -67,9 +172,6 @@ class CategoryBranch2(torch.nn.Module):
         self.dropout_rnn_input_b = dropout_rnn_input
         self.dropout_rnn_recurrent_f = dropout_rnn_recurrent
         self.dropout_rnn_recurrent_b = dropout_rnn_recurrent
-
-        self.decoder_dim = decoder_dim
-        self.output_classes = output_classes
 
         all_cnn_have_proper_len = all([
             len(a) == cnn_len
@@ -165,47 +267,20 @@ class CategoryBranch2(torch.nn.Module):
             setattr(self, 'rnn_activation_b_{}'.format(i + 1),
                     self.rnn_activations_b[i])
 
-        # Adding attention layer
-        self.attention = GaussianAttention(
-            dim=self.decoder_dim,
-            monotonic=monotonic_attention, bias=attention_bias)
-
-        self.decoder_cell = torch.nn.GRUCell(2*self.rnn_out_dims[-1], self.decoder_dim)
-        self.output_linear = torch.nn.Linear(self.decoder_dim, self.output_classes)
-
-        self.input_to_output = torch.nn.Linear(self.rnn_out_dims[-1] * 2, self.decoder_dim)
-
         self.initialize(init)
-
-    def init_gru_cell(self, module, init):
-        init(module.weight_ih.data)
-        init(module.weight_hh.data)
-        constant(module.bias_ih.data, 0)
-        constant(module.bias_hh.data, 0)
 
     def initialize(self, init):
         for module in self.cnn_layers:
             xavier_normal(module.weight.data)
             constant(module.bias.data, 0)
         for module in self.rnn_layers_f + self.rnn_layers_b:
-            self.init_gru_cell(module, init)
+            init_gru_cell(module, init)
 
-        self.init_gru_cell(self.decoder_cell, init)
-        xavier_normal(self.output_linear.weight.data)
-        constant(self.output_linear.bias.data, 0)
-
-        xavier_normal(self.input_to_output.weight.data)
-        constant(self.input_to_output.bias.data, 0)
-
-    def get_initial_decoder_state(self, batch_size):
-        # TODO: smarter initial state
-        state = Variable(torch.zeros((batch_size, self.decoder_dim)))
-        if torch.has_cudnn:
-            state = state.cuda()
-        return state
+    @property
+    def context_dim(self):
+        return self.rnn_out_dims[-1] * 2
 
     def forward(self, x, output_len):
-
         output = self.pooling_layers[0](self.bn_layers[0](
             self.cnn_activations[0](self.cnn_layers[0](
                 self.cnn_dropout_layers[0](x)
@@ -262,21 +337,7 @@ class CategoryBranch2(torch.nn.Module):
             output = output[:, 0:u_l:self.rnn_subsamplings[i], :]
             o_size = output.size()
 
-        hidden = self.input_to_output(
-            torch.cat([h_s_f[:, -1, :], h_s_b[:, 0, :]], -1))
-        kappa = self.attention.get_initial_kappa(output)
-
-        out_hidden = []
-        out_weights = []
-
-        for i in range(output_len):
-            attended, weights, kappa = self.attention(hidden, output, kappa)
-            hidden = self.decoder_cell(attended, hidden)
-
-            out_hidden.append(torch.nn.functional.softmax(self.output_linear(hidden).unsqueeze(1)))
-            out_weights.append(weights)
-
-        return torch.cat(out_hidden, 1), out_weights
+        return h_s_f, h_s_b
 
     def nb_trainable_parameters(self):
         nb_params = 0
@@ -295,7 +356,7 @@ def main():
 
     nb_cnn_layers = 3
 
-    b = CategoryBranch2(
+    b = CNNRNNEncoder(
         cnn_channels_in=40,
         cnn_channels_out=[40] * nb_cnn_layers,
         cnn_kernel_sizes=[(1, 3)] * nb_cnn_layers,

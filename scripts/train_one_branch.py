@@ -17,7 +17,7 @@ from torch.nn.utils import clip_grad_norm
 from attend_to_detect.dataset import (
     vehicle_classes, alarm_classes, get_input, get_output_binary_one_hot, get_data_stream_single,
     get_output_binary_single)
-from attend_to_detect.model import CategoryBranch2
+from attend_to_detect.model import CNNRNNEncoder
 from attend_to_detect.evaluation import validate_single_branch, \
     binary_category_cost_single, binary_accuracy_single, manual_b_entropy, multi_label_loss
 
@@ -45,7 +45,7 @@ def main():
     config = importlib.import_module(args.config_file)
 
     # The alarm branch layers
-    network = CategoryBranch2(
+    network = CNNRNNEncoder(
         cnn_channels_in=1,
         cnn_channels_out=config.network_channels_out,
         cnn_kernel_sizes=config.network_cnn_kernel_sizes,

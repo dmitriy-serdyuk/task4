@@ -5,7 +5,7 @@ from torch.nn.functional import cross_entropy, binary_cross_entropy, sigmoid
 from sed_eval.sound_event import SegmentBasedMetrics
 
 from attend_to_detect.dataset import (
-    vehicle_classes, alarm_classes, get_input, get_output_binary, get_output_binary_single,
+    vehicle_classes, alarm_classes, all_classes, get_input, get_output_binary, get_output_binary_single,
     get_output_binary_one_hot)
 
 
@@ -215,14 +215,12 @@ def multi_label_loss(y_pred, y_true, use_weights):
         return binary_cross_entropy_with_logits(out_hidden_summed, y_true)
 
 
-def validate(valid_data, common_feature_extractor, branch_alarm, branch_vehicle,
-             scaler, logger, total_iterations, epoch):
+def validate(valid_data, model, scaler, logger, total_iterations, epoch):
+    model.eval()
     valid_batches = 0
-    loss_a = 0.0
-    loss_v = 0.0
+    loss = 0.0
 
-    accuracy_a = 0.0
-    accuracy_v = 0.0
+    accuracy = 0.0
 
     validation_start_time = time.time()
     predictions_alarm = []
@@ -232,55 +230,33 @@ def validate(valid_data, common_feature_extractor, branch_alarm, branch_vehicle,
     for batch in valid_data.get_epoch_iterator():
         # Get input
         x = get_input(batch[0], scaler, volatile=True)
+        y_1_hot = get_output_binary_single(batch[-2], batch[-1])
 
-        # Get target values for alarm classes
-        y_alarm_1_hot, y_alarm_logits = get_output_binary(batch[-2])
+        outputs = model(x, len(all_classes))
+        probs = model.probs(outputs)
 
-        # Get target values for vehicle classes
-        y_vehicle_1_hot, y_vehicle_logits = get_output_binary(batch[-1])
+        # Calculate losses, do backward passing, and do updates
+        loss += model.cost(outputs, y_1_hot).data[0]
 
-        # Go through the common feature extractor
-        common_features = common_feature_extractor(x)
-
-        # Go through the alarm branch
-        alarm_output, alarm_weights = branch_alarm(
-            common_features, len(alarm_classes))
-
-        # Go through the vehicle branch
-        vehicle_output, vehicle_weights = branch_vehicle(
-            common_features, len(vehicle_classes))
-
-        # Calculate validation losses
-        # Chopping of at the groundtruth length
-
-        # alarm_output_aligned = alarm_output[:, :y_alarm_logits.size(1)].contiguous()
-        # vehicle_output_aligned = vehicle_output[:, :y_vehicle_logits.size(1)].contiguous()
-
-        loss_a += binary_category_cost(alarm_output, y_alarm_1_hot).data[0]
-        loss_v += binary_category_cost(vehicle_output, y_vehicle_1_hot).data[0]
-
-        # accuracy_a += accuracy(alarm_output_aligned, y_alarm_logits)
-        # accuracy_v += accuracy(vehicle_output_aligned, y_vehicle_logits)
-        accuracy_a += binary_accuracy(alarm_output, y_alarm_1_hot)
-        accuracy_v += binary_accuracy(vehicle_output, y_vehicle_1_hot)
+        if False:
+            # TODO
+            accuracy_v += binary_accuracy(vehicle_output, y_vehicle_1_hot)
 
         valid_batches += 1
 
         if torch.has_cudnn:
-            alarm_output = alarm_output.cpu()
-            vehicle_output = vehicle_output.cpu()
-            y_alarm_1_hot = y_alarm_1_hot.cpu()
-            y_vehicle_1_hot = y_vehicle_1_hot.cpu()
+            probs = probs.cpu()
+            y_1_hot = y_1_hot.cpu()
 
-        predictions_alarm.extend(sigmoid(alarm_output).data.numpy())
-        predictions_vehicle.extend(sigmoid(vehicle_output).data.numpy())
-        ground_truths_alarm.extend(y_alarm_1_hot.data.numpy())
-        ground_truths_vehicle.extend(y_vehicle_1_hot.data.numpy())
+        predictions_alarm.extend(probs[:, :len(alarm_classes), 0].data.numpy())
+        predictions_vehicle.extend(probs[:, len(alarm_classes):, 0].data.numpy())
+        ground_truths_alarm.extend(y_1_hot[:, :len(alarm_classes), 0].data.numpy())
+        ground_truths_vehicle.extend(y_1_hot[:, len(alarm_classes):, 0].data.numpy())
 
     print('Epoch {:4d} validation elapsed time {:10.5f} sec(s)'
           '\n\tValid. loss alarm: {:10.6f} | vehicle: {:10.6f} '.format(
                 epoch, time.time() - validation_start_time,
-                loss_a/valid_batches, loss_v/valid_batches))
+                loss/valid_batches, loss/valid_batches))
     metrics = tagging_metrics_from_raw_output(
         predictions_alarm, predictions_vehicle,
         ground_truths_alarm, ground_truths_vehicle,
@@ -292,19 +268,12 @@ def validate(valid_data, common_feature_extractor, branch_alarm, branch_vehicle,
     logger.log({'iteration': total_iterations,
                 'epoch': epoch,
                 'records': {
-                    'valid_alarm': dict(
-                        loss=loss_a/valid_batches,
-                        acc=accuracy_a/valid_batches,
+                    'valid': dict(
+                        loss=loss/valid_batches,
+                        acc=1.0/valid_batches,
                         # f_score=f_score_overall_alarm['f_measure'],
                         # precision=f_score_overall_alarm['precision'],
                         # recall=f_score_overall_alarm['recall']
-                    ),
-                    'valid_vehicle': dict(
-                        loss=loss_v/valid_batches,
-                        acc=accuracy_v/valid_batches,
-                        # f_score=f_score_overall_vehicle['f_measure'],
-                        # precision=f_score_overall_vehicle['precision'],
-                        # recall=f_score_overall_vehicle['recall']
                     )}})
 
 

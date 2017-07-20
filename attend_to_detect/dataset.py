@@ -32,6 +32,8 @@ vehicle_classes = [
     'Train'
 ]
 
+all_classes = alarm_classes + vehicle_classes
+
 
 def padder(data):
     data = list(data)
@@ -175,6 +177,9 @@ def get_output_binary(data, old_dataset=True):
 
 
 def get_output_binary_single(data_a, data_v, old_dataset=True):
+    """
+
+    """
     if old_dataset:
         for i in range(len(data_a)):
             data_a[i] = data_a[i].reshape(data_a[i].shape[1:])

@@ -18,10 +18,10 @@ from sklearn.preprocessing import StandardScaler
 import numpy as np
 
 if sys.version_info < (3, 0):
-    from .category_branch_2 import CategoryBranch2
+    from .category_branch_2 import CNNRNNEncoder
     from .common_feature_extractor import CommonFeatureExtractor
 else:
-    from attend_to_detect.model.category_branch_2 import CategoryBranch2
+    from attend_to_detect.model.category_branch_2 import CNNRNNEncoder
     from attend_to_detect.model.common_feature_extractor import CommonFeatureExtractor
 
 __docformat__ = 'reStructuredText'
@@ -192,7 +192,7 @@ def main():
     )
 
     # The alarm branch layers
-    branch_alarm = CategoryBranch2(
+    branch_alarm = CNNRNNEncoder(
         cnn_channels_in=common_out_channels,
         cnn_channels_out=branch_alarm_channels_out,
         cnn_kernel_sizes=branch_alarm_cnn_kernel_sizes,
@@ -212,7 +212,7 @@ def main():
     )
 
     # The vehicle branch layers
-    branch_vehicle = CategoryBranch2(
+    branch_vehicle = CNNRNNEncoder(
         cnn_channels_in=common_out_channels,
         cnn_channels_out=branch_vehicle_channels_out,
         cnn_kernel_sizes=branch_vehicle_cnn_kernel_sizes,

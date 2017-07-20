@@ -38,11 +38,12 @@ class ContentAttention(nn.Module):
 
 
 class GaussianAttention(nn.Module):
-    def __init__(self, dim, monotonic=False, bias=True):
+    def __init__(self, dim, monotonic=False, bias=True, normalize=True):
         super(GaussianAttention, self).__init__()
         self.linear_in = nn.Linear(dim, 2, bias=bias)
         self.mask = None
         self.monotonic = monotonic
+        self.normalize = normalize
 
         self.initialize()
 
@@ -94,6 +95,8 @@ class GaussianAttention(nn.Module):
         beta_exp = beta.contiguous().view(beta.size(0), 1).expand_as(indexes_exp)
         kappa_exp = kappa.contiguous().view(kappa.size(0), 1).expand_as(indexes_exp)
         attn = torch.exp(-beta_exp * (kappa_exp - indexes_exp)**2)
+        if self.normalize:
+            attn = attn / attn.sum(1).expand_as(attn)
         attn3 = attn.unsqueeze(2)
 
         weighted_context = attn3.expand_as(context) * context

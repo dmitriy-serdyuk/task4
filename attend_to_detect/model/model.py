@@ -1,43 +1,12 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 from __future__ import print_function
-import sys
-
-import numpy as np
 
 import torch
 from torch import nn
+from torch.nn.functional import sigmoid
 from torch.autograd import Variable
 
-if sys.version_info > (3, 0):
-    from attend_to_detect.model.category_specific_branch import CategoryBranch
-else:
-    from .model.category_specific_branch import CategoryBranch
-
-
-# def padder(data, indices):
-#     data = list(data)
-#     masks = []
-#     for index in indices:
-#         index_masks = []
-#         max_ts = np.max([datum.shape[-2] for datum in data[index]])
-#
-#         for i in range(len(data[index])):
-#             len_dif = max_ts - data[index][i].shape[-2]
-#             tmp = np.ones(data[index][i].shape[:-2] + (max_ts, ) + data[index][i].shape[-1:])
-#             if len_dif > 0:
-#                 data[index][i] = np.concatenate((
-#                     data[index][i],
-#                     np.zeros((1, len_dif, data[index][i].shape[-1]))),
-#                     axis=-2
-#                 )
-#                 if index != 0:
-#                     data[index][i][:, -len_dif:, 0] = 1
-#
-#     data = tuple(data)
-#
-#     return data
+from .category_specific_branch import CategoryBranch
+from attend_to_detect.evaluation import binary_cross_entropy_with_logits
 
 
 class AttendToDetect(nn.Module):
@@ -113,6 +82,58 @@ def valid_fn(model, criterion, batch):
 
     val_loss = criterion(y_hat, y).data[0]
     return val_loss
+
+
+class Model(nn.Module):
+    def __init__(self, encoder, decoder):
+        super(Model, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+
+    def forward(self, input, output_length):
+        contexts = self.encoder(input)
+        return self.decoder(*contexts, output_len=output_length)
+
+    def cost(self, output, target):
+        pass
+
+    def accuracy(self, output, target):
+        pass
+
+
+class MultipleAttentionModel(nn.Module):
+    def __init__(self, encoder, decoders):
+        super(MultipleAttentionModel, self).__init__()
+
+        self.encoder = encoder
+        self.decoders = decoders
+        for i, decoder in enumerate(decoders):
+            self.add_module('decoder_{}'.format(i), decoder)
+
+    def forward(self, input, output_length):
+        contexts = self.encoder(input, output_length)
+        return [decoder(*contexts, output_len=output_length)
+                for decoder in self.decoders]
+
+    def cost(self, outputs, target):
+        outputs = [output for output, weight in outputs]
+        outputs = torch.cat(outputs, 1)
+        outputs = outputs.view(-1)
+
+        target = target.view(-1)
+        return binary_cross_entropy_with_logits(outputs, target)
+
+    def probs(self, outputs):
+        outputs = [output for output, weight in outputs]
+        outputs = torch.cat(outputs, 1)
+        outputs = sigmoid(outputs)
+        return outputs
+
+    def accuracy(self, output, target):
+        pass
+
+
+#######################
 
 
 def main():
