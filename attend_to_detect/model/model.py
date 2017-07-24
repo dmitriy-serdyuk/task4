@@ -116,7 +116,7 @@ class MultipleAttentionModel(nn.Module):
                 for decoder in self.decoders]
 
     def cost(self, outputs, target):
-        outputs = [output for output, weight in outputs]
+        outputs = [output for output, _ in outputs]
         outputs = torch.cat(outputs, 1)
         outputs = outputs.view(-1)
 
@@ -129,8 +129,11 @@ class MultipleAttentionModel(nn.Module):
         outputs = sigmoid(outputs)
         return outputs
 
-    def accuracy(self, output, target):
-        pass
+    def accuracy(self, output, target_categorical):
+        probs = self.probs(output)
+        predicted = probs > 0.5
+        predicted_categorical = predicted.max(-1)[1]
+        torch.ne(predicted_categorical, target_categorical).float().sum()
 
 
 #######################

@@ -14,12 +14,16 @@ from tqdm import tqdm
 
 import torch
 from torch.nn.utils import clip_grad_norm
+from torch.utils.data.sampler import WeightedRandomSampler
+from torch.utils.data.dataloader import DataLoader
+from torch.autograd import Variable
 
 from attend_to_detect.dataset import (
     all_classes, get_input, get_output_binary_single, get_data_stream)
 from attend_to_detect.model import (
     CNNRNNEncoder, MLPDecoder, MultipleAttentionModel)
 from attend_to_detect.evaluation import validate, binary_accuracy
+from attend_to_detect.pytorch_dataset import ChallengeDataset
 
 __docformat__ = 'reStructuredText'
 
@@ -47,8 +51,7 @@ def main():
     # The alarm branch layers
     encoder = CNNRNNEncoder(**config.encoder_config)
 
-    decoders = [MLPDecoder(config.network_decoder_dim, 1, encoder.context_dim)
-                for _ in all_classes]
+    decoders = [MLPDecoder(config.network_decoder_dim, 1, encoder.context_dim) for _ in all_classes]
 
     model = MultipleAttentionModel(encoder, decoders)
 
@@ -76,31 +79,29 @@ def main():
     else:
         examples = args.train_examples
 
-    if os.path.isfile('scaler.pkl'):
-        with open('scaler.pkl', 'rb') as f:
-            scaler = pickle.load(f)
-        train_data, _ = get_data_stream(
-            dataset_name=config.dataset_full_path,
-            batch_size=config.batch_size,
-            calculate_scaling_metrics=False,
-            examples=examples)
-    else:
-        train_data, scaler = get_data_stream(
-            dataset_name=config.dataset_full_path,
-            batch_size=config.batch_size,
-            calculate_scaling_metrics=True,
-            examples=examples)
-        # Serialize scaler so we don't need to do this again
-        with open('scaler.pkl', 'wb') as f:
-            pickle.dump(scaler, f)
+    # Load datasets
+    with open('scaler.pkl', 'rb') as f:
+        scaler = pickle.load(f)
+    with open('weights_p2.pkl', 'rb') as f:
+        weights = pickle.load(f)
 
-    # Get the validation data stream
-    valid_data, _ = get_data_stream(
+    train_dataset = ChallengeDataset(
         dataset_name=config.dataset_full_path,
-        batch_size=config.batch_size,
-        that_set='test',
-        calculate_scaling_metrics=False,
-    )
+        that_set='train', scaler=scaler, shuffle_targets=True)
+    valid_dataset = ChallengeDataset(
+        dataset_name=config.dataset_full_path,
+        that_set='test', scaler=scaler, shuffle_targets=False)
+
+    train_sampler = WeightedRandomSampler(weights, len(train_dataset))
+    train_data = DataLoader(train_dataset,
+                            batch_size=config.batch_size,
+                            sampler=train_sampler,
+                            collate_fn=ChallengeDataset.collate)
+    train_data.get_epoch_iterator = train_data.__iter__
+    valid_data = DataLoader(valid_dataset,
+                            batch_size=config.batch_size,
+                            collate_fn=ChallengeDataset.collate)
+    valid_data.get_epoch_iterator = valid_data.__iter__
 
     logger = Logger("{}_log.jsonl.gz".format(args.checkpoint_path),
                     formatter=None)
@@ -160,10 +161,14 @@ def train_loop(config, model, train_data, valid_data, scaler, optim, print_grads
             epoch_iterator = tqdm(epoch_iterator,
                                   total=50000 // config.batch_size)
         for iteration, batch in epoch_iterator:
-            # Get input
-            x = get_input(batch[0], scaler)
-            y_1_hot = get_output_binary_single(batch[-2], batch[-1])
+            x, y = batch
+            x = Variable(x.cuda(), requires_grad=False)
+            y_1_hot = train_data.dataset.one_hot(y, all_classes)
+            if torch.has_cudnn:
+                y_1_hot = y_1_hot.cuda()
+            y_1_hot = Variable(y_1_hot, requires_grad=False)
 
+            # Get input
             outputs = model(x, len(all_classes))
 
             # Calculate losses, do backward passing, and do updates

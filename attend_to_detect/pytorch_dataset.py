@@ -50,9 +50,8 @@ def compute_weights(dataset):
 
 
 class ChallengeDataset(Dataset):
-
     def __init__(self, dataset_name, that_set, scaler,
-            shuffle_targets=False):
+                 shuffle_targets=False):
         super(ChallengeDataset, self).__init__()
         raw_data = H5PYDataset(dataset_name, which_sets=(that_set, ), load_in_memory=False)
         scheme = SequentialExampleScheme(raw_data.num_examples)
@@ -78,6 +77,12 @@ class ChallengeDataset(Dataset):
         if self.shuffle_targets and y.size(0) > 2:
             y[:-1] = y[torch.randperm(y.size(0) - 1)]
         return torch.FloatTensor(x_norm[np.newaxis]), y.view(1, -1)
+
+    def one_hot(self, y, all_classes):
+        y_1_hot = torch.zeros(y.size(0), 1 + len(all_classes))
+        y_1_hot.scatter_(1, y, 1.)
+        y_1_hot = y_1_hot[:, 1:].contiguous()
+        return y_1_hot
 
     def __len__(self):
         return self.data.dataset.num_examples

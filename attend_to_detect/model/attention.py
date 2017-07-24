@@ -38,7 +38,7 @@ class ContentAttention(nn.Module):
 
 
 class GaussianAttention(nn.Module):
-    def __init__(self, dim, monotonic=False, bias=True, normalize=True):
+    def __init__(self, dim, monotonic=False, bias=True, normalize=False):
         super(GaussianAttention, self).__init__()
         self.linear_in = nn.Linear(dim, 2, bias=bias)
         self.mask = None

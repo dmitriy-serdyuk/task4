@@ -2,6 +2,7 @@ import numpy as np
 import time
 import torch
 from torch.nn.functional import cross_entropy, binary_cross_entropy, sigmoid
+from torch.autograd import Variable
 from sed_eval.sound_event import SegmentBasedMetrics
 
 from attend_to_detect.dataset import (
@@ -127,7 +128,7 @@ def per_example_cross_entropy(x, targets):
 
 def manual_b_entropy(pred, true):
     weights = np.array(all_freqs).reshape(1, len(all_freqs), 1)
-    weights = torch.autograd.Variable(torch.from_numpy(50000 / weights).float())
+    weights = Variable(torch.from_numpy(50000 / weights).float())
     if torch.has_cudnn:
         weights = weights.cuda()
     local_pred = pred.view(pred.size()[:-1])
@@ -149,7 +150,7 @@ def manual_b_entropy(pred, true):
 
 def binary_category_cost_single(out_hidden, target, weight=None, is_valid=False):
     weights = np.array(all_freqs).reshape(1, len(all_freqs), 1)
-    weights = torch.autograd.Variable(torch.from_numpy(1.0/weights).float())
+    weights = Variable(torch.from_numpy(1.0/weights).float())
     if torch.has_cudnn:
         weights = weights.cuda()
     a_term = target * weights.expand_as(target)
@@ -207,7 +208,7 @@ def multi_label_loss(y_pred, y_true, use_weights):
     if use_weights:
         local_weights = [30000.0 / a for a in all_freqs]
         weights = np.array([1.] + local_weights).reshape(1, len(all_freqs) + 1, 1)
-        weights = torch.autograd.Variable(torch.from_numpy(weights).float())
+        weights = Variable(torch.from_numpy(weights).float())
         if torch.has_cudnn:
             weights = weights.cuda()
         return binary_cross_entropy_with_logits(out_hidden_summed, y_true, weights)
@@ -223,15 +224,17 @@ def validate(valid_data, model, scaler, logger, total_iterations, epoch):
     accuracy = 0.0
 
     validation_start_time = time.time()
-    predictions_alarm = []
-    predictions_vehicle = []
-    ground_truths_alarm = []
-    ground_truths_vehicle = []
-    for batch in valid_data.get_epoch_iterator():
+    predictions = []
+    ground_truths = []
+    for batch in valid_data:
         # Get input
-        x = get_input(batch[0], scaler, volatile=True)
-        y_1_hot = get_output_binary_single(batch[-2], batch[-1])
+        x, y = batch
+        x = Variable(x.cuda(), requires_grad=False)
 
+        y_1_hot = valid_data.dataset.one_hot(y, all_classes)
+        y_1_hot = Variable(y_1_hot, requires_grad=False)
+        if torch.has_cudnn:
+            y_1_hot = y_1_hot.cuda()
         outputs = model(x, len(all_classes))
         probs = model.probs(outputs)
 
@@ -248,19 +251,27 @@ def validate(valid_data, model, scaler, logger, total_iterations, epoch):
             probs = probs.cpu()
             y_1_hot = y_1_hot.cpu()
 
-        predictions_alarm.extend(probs[:, :len(alarm_classes), 0].data.numpy())
-        predictions_vehicle.extend(probs[:, len(alarm_classes):, 0].data.numpy())
-        ground_truths_alarm.extend(y_1_hot[:, :len(alarm_classes), 0].data.numpy())
-        ground_truths_vehicle.extend(y_1_hot[:, len(alarm_classes):, 0].data.numpy())
+        predictions.extend(probs.data.numpy())
+        ground_truths.extend(y_1_hot.data.numpy())
 
     print('Epoch {:4d} validation elapsed time {:10.5f} sec(s)'
           '\n\tValid. loss alarm: {:10.6f} | vehicle: {:10.6f} '.format(
                 epoch, time.time() - validation_start_time,
                 loss/valid_batches, loss/valid_batches))
-    metrics = tagging_metrics_from_raw_output(
-        predictions_alarm, predictions_vehicle,
-        ground_truths_alarm, ground_truths_vehicle,
-        alarm_classes, vehicle_classes)
+
+    def get_dicts(prediction):
+        pred_list = []
+        for i in np.where(prediction >= 0.5)[0]:
+            pred_list.append(
+                dict(event_onset=0.,
+                     event_offset=10.,
+                     event_label=all_classes[i]))
+        return pred_list
+
+    dict_predictions = [get_dicts(pred) for pred in predictions]
+    dict_groundtruths = [get_dicts(pred) for pred in ground_truths]
+    metrics = tagging_metrics_from_list(
+        dict_predictions, dict_groundtruths, all_classes)
     print(metrics)
 
     # f_score_overall_alarm = metrics_alarm.overall_f_measure()
