@@ -166,14 +166,14 @@ class CTCModel(nn.Module):
         :return:
         """
         # (B, C, T)
-        output = output.transpose(1, 2).contigious()
+        output = output.transpose(1, 2).contiguous()
         # (BxC, T, 1)
         output = output.view(-1, output.size(2), 1)
         # (BxC, T, 2): [prob, 1-prob]
         output = torch.cat([output, 1 - output], -1)
 
         # (T, BxC, 2): for CTC loss
-        output = output.transpose(0, 1).contigious()
+        output = output.transpose(0, 1).contiguous()
         return output
 
     def cost(self, output, target):
