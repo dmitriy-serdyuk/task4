@@ -236,7 +236,7 @@ def validate(valid_data, model, scaler, logger, total_iterations, epoch):
         if torch.has_cudnn:
             y_1_hot = y_1_hot.cuda()
         outputs = model(x, len(all_classes))
-        probs = model.probs(outputs)
+        probs = model.probs(outputs).max(1)
 
         # Calculate losses, do backward passing, and do updates
         loss += model.cost(outputs, y_1_hot).data[0]
