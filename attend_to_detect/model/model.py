@@ -159,11 +159,33 @@ class CTCModel(nn.Module):
     def unflatten(self, tensor, size):
         return tensor.view(size[0], size[1], tensor.size(1))
 
+    def prepare_output(self, output):
+        """
+
+        :param output: (B, T, C) output or one-hot label
+        :return:
+        """
+        # (B, C, T)
+        output = output.transpose(1, 2)
+        # (BxC, T, 1)
+        output = output.view(-1, output.size(2), 1)
+        # (BxC, T, 2): [prob, 1-prob]
+        output = torch.cat([output, 1 - output], -1)
+
+        # (T, BxC, 2): for CTC loss
+        output = output.transpose(0, 1).contigious()
+        return output
+
     def cost(self, output, target):
-        probs = self.probs(output)
-        probs = probs.transpose(0, 1).contigious()
-        target = target.transpose(0, 1).contigious().int()
-        return self.loss(probs, target)
+        output = self.probs(output)
+        output = self.prepare_output(output)
+
+        target = self.prepare_output(target).int()
+
+        output_sizes = Variable(
+            torch.IntTensor([output.size(0)] * output.size(1)))
+        label_sizes = Variable(torch.IntTensor([1] * target.size(1)))
+        return self.loss(output, target, output_sizes, label_sizes)
 
     def probs(self, output):
         return sigmoid(output)
