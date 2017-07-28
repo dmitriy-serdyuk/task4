@@ -159,7 +159,7 @@ class CTCModel(nn.Module):
     def unflatten(self, tensor, size):
         return tensor.view(size[0], size[1], tensor.size(1))
 
-    def prepare_output(self, output):
+    def prepare_output(self, output, concat=True):
         """
 
         :param output: (B, T, C) output or one-hot label
@@ -170,7 +170,10 @@ class CTCModel(nn.Module):
         # (BxC, T, 1)
         output = output.view(-1, output.size(2), 1)
         # (BxC, T, 2): [prob, 1-prob]
-        output = torch.cat([1 - output, output], -1)
+        if concat:
+            output = torch.cat([1 - output, output], -1)
+        else:
+            output = output[:, :, 0]
 
         # (T, BxC, 2): for CTC loss
         output = output.transpose(0, 1).contiguous()
@@ -180,7 +183,7 @@ class CTCModel(nn.Module):
         output = self.probs(output)
         output = self.prepare_output(output)
 
-        target = self.prepare_output(target.unsqueeze(1))[:, :, 0].int().cpu()
+        target = self.prepare_output(target.unsqueeze(1), concat=False).int().cpu()
 
         output_sizes = Variable(
             torch.IntTensor([output.size(0)] * output.size(1)))
