@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torch.nn.functional import sigmoid
 from torch.autograd import Variable
+from warpctc_pytorch import CTCLoss
 
 from .category_specific_branch import CategoryBranch
 from attend_to_detect.evaluation import binary_cross_entropy_with_logits
@@ -122,6 +123,39 @@ class MultipleAttentionModel(nn.Module):
 
         target = target.view(-1)
         return binary_cross_entropy_with_logits(outputs, target)
+
+    def probs(self, outputs):
+        outputs = [output for output, weight in outputs]
+        outputs = torch.cat(outputs, 1)
+        outputs = sigmoid(outputs)
+        return outputs
+
+    def accuracy(self, output, target_categorical):
+        probs = self.probs(output)
+        predicted = probs > 0.5
+        predicted_categorical = predicted.max(-1)[1]
+        torch.ne(predicted_categorical, target_categorical).float().sum()
+
+
+class CTCModel(nn.Module):
+    def __init__(self, encoder, decoder):
+        super(CTCModel, self).__init__()
+
+        self.encoder = encoder
+        self.decoder = decoder
+        self.loss = CTCLoss()
+
+    def forward(self, input, output_length):
+        contexts = self.encoder(input, output_length)
+        decoded = self.decoder(*contexts)
+
+    def cost(self, outputs, target):
+        outputs = [output for output, _ in outputs]
+        outputs = torch.cat(outputs, 1)
+        outputs = outputs.view(-1)
+
+        target = target.view(-1)
+        return self.loss(outputs, target)
 
     def probs(self, outputs):
         outputs = [output for output, weight in outputs]
