@@ -170,7 +170,7 @@ class CTCModel(nn.Module):
         # (BxC, T, 1)
         output = output.view(-1, output.size(2), 1)
         # (BxC, T, 2): [prob, 1-prob]
-        output = torch.cat([output, 1 - output], -1)
+        output = torch.cat([1 - output, output], -1)
 
         # (T, BxC, 2): for CTC loss
         output = output.transpose(0, 1).contiguous()
@@ -180,7 +180,7 @@ class CTCModel(nn.Module):
         output = self.probs(output)
         output = self.prepare_output(output)
 
-        target = self.prepare_output(target.unsqueeze(1)).int().cpu()
+        target = self.prepare_output(target.unsqueeze(1))[:, :, 0].int().cpu()
 
         output_sizes = Variable(
             torch.IntTensor([output.size(0)] * output.size(1)))
