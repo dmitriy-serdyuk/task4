@@ -166,7 +166,7 @@ class CTCModel(nn.Module):
         :return:
         """
         # (B, C, T)
-        output = output.transpose(1, 2)
+        output = output.transpose(1, 2).contigious()
         # (BxC, T, 1)
         output = output.view(-1, output.size(2), 1)
         # (BxC, T, 2): [prob, 1-prob]
