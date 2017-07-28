@@ -21,7 +21,7 @@ from torch.autograd import Variable
 from attend_to_detect.dataset import (
     all_classes, get_input, get_output_binary_single, get_data_stream)
 from attend_to_detect.model import (
-    CNNRNNEncoder, MLPDecoder, MultipleAttentionModel)
+    CNNRNNEncoder, MLPDecoder, MultipleAttentionModel, CTCModel)
 from attend_to_detect.evaluation import validate, binary_accuracy
 from attend_to_detect.pytorch_dataset import ChallengeDataset
 
@@ -51,9 +51,9 @@ def main():
     # The alarm branch layers
     encoder = CNNRNNEncoder(**config.encoder_config)
 
-    decoders = [MLPDecoder(config.network_decoder_dim, 1, encoder.context_dim) for _ in all_classes]
+    decoder = torch.nn.Linear(config.network_decoder_dim, len(all_classes))
 
-    model = MultipleAttentionModel(encoder, decoders)
+    model = CTCModel(encoder, decoder)
 
     # Check if we have GPU, and if we do then GPU them all
     if torch.has_cudnn:
@@ -82,8 +82,7 @@ def main():
     # Load datasets
     with open('scaler.pkl', 'rb') as f:
         scaler = pickle.load(f)
-    with open('weights_p2.pkl', 'rb') as f:
-        weights = pickle.load(f)
+    weights = np.load('weights.npy')
 
     train_dataset = ChallengeDataset(
         dataset_name=config.dataset_full_path,

@@ -147,21 +147,26 @@ class CTCModel(nn.Module):
 
     def forward(self, input, output_length):
         contexts = self.encoder(input, output_length)
-        decoded = self.decoder(*contexts)
+        context = torch.cat(contexts, -1)
+        flat_context = self.flatten(context)
+        flat_decoded = self.decoder(flat_context)
+        return self.unflatten(flat_decoded, context.size())
 
-    def cost(self, outputs, target):
-        outputs = [output for output, _ in outputs]
-        outputs = torch.cat(outputs, 1)
-        outputs = outputs.view(-1)
+    def flatten(self, tensor):
+        size = tensor.size()
+        return tensor.view(size[0] * size[1], size[2])
 
-        target = target.view(-1)
-        return self.loss(outputs, target)
+    def unflatten(self, tensor, size):
+        return tensor.view(size[0], size[1], tensor.size(1))
 
-    def probs(self, outputs):
-        outputs = [output for output, weight in outputs]
-        outputs = torch.cat(outputs, 1)
-        outputs = sigmoid(outputs)
-        return outputs
+    def cost(self, output, target):
+        probs = self.probs(output)
+        probs = probs.transpose(0, 1).contigious()
+        target = target.transpose(0, 1).contigious().int()
+        return self.loss(probs, target)
+
+    def probs(self, output):
+        return sigmoid(output)
 
     def accuracy(self, output, target_categorical):
         probs = self.probs(output)
