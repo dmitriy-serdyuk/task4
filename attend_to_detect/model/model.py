@@ -180,7 +180,7 @@ class CTCModel(nn.Module):
         output = self.probs(output)
         output = self.prepare_output(output)
 
-        target = self.prepare_output(target).int()
+        target = self.prepare_output(target.unsqueeze(1)).int()
 
         output_sizes = Variable(
             torch.IntTensor([output.size(0)] * output.size(1)))
