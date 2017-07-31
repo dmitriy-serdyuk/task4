@@ -169,7 +169,7 @@ class CTCModel(nn.Module):
         class_size = class_size_t // 3
         # (B, T, C, 3)
         output = output.view(
-            batch_size, timesteps, class_size, class_size, 3)
+            batch_size, timesteps, class_size, 3)
         # (B, C, T, 3)
         output = output.transpose(1, 2).contiguous()
         # (BxC, T, 3)
