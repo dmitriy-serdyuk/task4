@@ -9,7 +9,6 @@ import timeit
 import shutil
 from argparse import ArgumentParser
 from contextlib import closing
-from itertools import chain
 from mimir import Logger
 from tqdm import tqdm
 
@@ -19,10 +18,8 @@ from torch.utils.data.sampler import WeightedRandomSampler
 from torch.utils.data.dataloader import DataLoader
 from torch.autograd import Variable
 
-from attend_to_detect.dataset import (
-    all_classes, get_input, get_output_binary_single, get_data_stream)
-from attend_to_detect.model import (
-    CNNRNNEncoder, MLPDecoder, MultipleAttentionModel, CTCModel)
+from attend_to_detect.dataset import all_classes
+from attend_to_detect.model import CNNRNNFastEncoder, CTCModel
 from attend_to_detect.evaluation import validate, binary_accuracy
 from attend_to_detect.pytorch_dataset import ChallengeDataset
 
@@ -50,7 +47,7 @@ def main():
     config = importlib.import_module(args.config_file)
 
     # The alarm branch layers
-    encoder = CNNRNNEncoder(**config.encoder_config)
+    encoder = CNNRNNFastEncoder(**config.encoder_config)
 
     decoder = torch.nn.Linear(config.network_decoder_dim, len(all_classes) * 3)
     torch.nn.init.constant(decoder.bias.data, -0.)
