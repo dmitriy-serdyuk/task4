@@ -169,9 +169,9 @@ class CTCModel(nn.Module):
         output = output.transpose(1, 2).contiguous()
         # (BxC, T, 1)
         output = output.view(-1, output.size(2), 1)
-        # (BxC, T, 2): [prob, 1-prob]
+        # (BxC, T, 2): [-act, act]
         if concat:
-            output = torch.cat([1 - output, output], -1)
+            output = torch.cat([-output, output], -1)
         else:
             output = output[:, :, 0]
 
@@ -180,15 +180,21 @@ class CTCModel(nn.Module):
         return output
 
     def cost(self, output, target):
-        output = self.probs(output)
+        batch_size = output.size(0)
+        #output = torch.log(self.probs(output))
         output = self.prepare_output(output)
 
-        target = self.prepare_output(target.unsqueeze(1), concat=False).int().cpu()
+        target = self.prepare_output(
+                target.unsqueeze(1), concat=False).int().cpu()
+        target_dummy = Variable(torch.ones(target.size()).int())
+        #target = target_dummy  #torch.cat(
+        #    [target, target_dummy, target_dummy, target_dummy], 0)
 
         output_sizes = Variable(
             torch.IntTensor([output.size(0)] * output.size(1)))
-        label_sizes = Variable(torch.IntTensor([1] * target.size(1)))
-        return self.loss(output, target, output_sizes, label_sizes)
+        label_sizes = 0 * (1 - target[0]) + target[0]
+        return self.loss(output, target, output_sizes, label_sizes) / batch_size
+        #return ((output - target.cuda().float().unsqueeze(2).expand_as(output))**2).sum()
 
     def probs(self, output):
         return sigmoid(output)

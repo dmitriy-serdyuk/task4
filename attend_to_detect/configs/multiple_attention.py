@@ -1,20 +1,20 @@
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from torch.nn import functional
 from torch.nn.init import orthogonal, xavier_uniform, xavier_normal
 
 # General variables
 batch_size = 64
 epochs = 300
-dataset_full_path = '/data/lisatmp4/santosjf/task4/attend_to_detect/create_dataset/dcase_2017_task_4_test.hdf5'
+dataset_full_path = '/Tmp/serdyuk/data/dcase_2017_task_4_test.hdf5'
 
 grad_clip_norm = 0.
 network_loss_weight = True
 
 # Optimizer parameters
-optimizer = Adam
+optimizer = SGD
 optimizer_lr = 1e-4
 l1_factor = 0.
-l2_factor = 1e-4
+l2_factor = 0.
 
 encoder_config = dict(
     cnn_channels_in=1,
@@ -29,16 +29,16 @@ encoder_config = dict(
     max_pool_strides=[(2, 2), (2, 2), (2, 2)],
     max_pool_paddings=[(1, 1), (1, 1), (1, 1)],
     rnn_input_size=768,
-    rnn_out_dims=[128, 128],
+    rnn_out_dims=[256, 256],
     rnn_activations=[functional.tanh, functional.tanh],
-    dropout_cnn=0.5,
-    dropout_rnn_input=0.5,
+    dropout_cnn=0.,
+    dropout_rnn_input=0.,
     dropout_rnn_recurrent=0.0,
     rnn_subsamplings=[1])
 
 network_attention_bias = True
 network_init = xavier_normal
 
-network_decoder_dim = 256
+network_decoder_dim = 512
 
 # EOF

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+from __future__ import print_function
 import os
 import pickle
 import importlib
@@ -52,6 +53,8 @@ def main():
     encoder = CNNRNNEncoder(**config.encoder_config)
 
     decoder = torch.nn.Linear(config.network_decoder_dim, len(all_classes))
+    torch.nn.init.constant(decoder.bias.data, -0.)
+    torch.nn.init.xavier_uniform(decoder.weight.data) * 0.1
 
     model = CTCModel(encoder, decoder)
 
@@ -169,6 +172,8 @@ def train_loop(config, model, train_data, valid_data, scaler, optim, print_grads
 
             # Get input
             outputs = model(x, len(all_classes))
+            outputs.register_hook(lambda grad: setattr(outputs, 'gradient', grad))
+            print(outputs[0])
 
             # Calculate losses, do backward passing, and do updates
             loss = model.cost(outputs, y_1_hot)
