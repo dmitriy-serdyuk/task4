@@ -239,12 +239,7 @@ def validate(valid_data, model, scaler, logger, total_iterations, epoch):
         probs = model.probs(outputs).max(1)[0][:, 0, :]
 
         # Calculate losses, do backward passing, and do updates
-        #import ipdb; ipdb.set_trace()
         loss += model.cost(outputs, y_1_hot).data[0]
-
-        if False:
-            # TODO
-            accuracy_v += binary_accuracy(vehicle_output, y_vehicle_1_hot)
 
         valid_batches += 1
 
@@ -262,7 +257,8 @@ def validate(valid_data, model, scaler, logger, total_iterations, epoch):
 
     def get_dicts(prediction):
         pred_list = []
-        for i in np.where(prediction >= 0.5)[0]:
+        prediction = prediction.reshape(17, 3)
+        for i in np.where(np.argmax(prediction, 1) == 2)[0]:
             pred_list.append(
                 dict(event_onset=0.,
                      event_offset=10.,
