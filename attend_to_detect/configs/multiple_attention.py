@@ -31,9 +31,9 @@ encoder_config = dict(
     rnn_input_size=768,
     rnn_out_dims=[256, 256],
     rnn_activations=[functional.tanh, functional.tanh],
-    dropout_cnn=0.,
-    dropout_rnn_input=0.,
-    dropout_rnn_recurrent=0.0,
+    cnn_dropout=0.,
+    rnn_dropout_input=0.,
+    rnn_dropout_recurrent=0.0,
     rnn_subsamplings=[1])
 
 network_attention_bias = True
