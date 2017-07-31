@@ -1,13 +1,10 @@
 # -*- coding: utf-8 -*-
-
-# imports
-from operator import mul
-from functools import reduce
 import torch
 from torch import nn
 from torch.autograd import Variable
 from torch.nn.init import xavier_normal, constant, orthogonal
 from torch.nn.functional import softmax, relu
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import numpy as np
 
 from .attention import GaussianAttention
@@ -224,8 +221,41 @@ class CNNBottom(nn.Module):
         output = output.permute(0, 2, 1, 3)
         o_size = output.size()
         output = output.resize(o_size[0], o_size[1], o_size[2] * o_size[3])
-        o_size = output.size()
-        return output, o_size
+        return output
+
+
+class CNNRNNFastEncoder(nn.Module):
+    def __init__(self,
+                 cnn_channels_in, cnn_channels_out,
+                 cnn_kernel_sizes, cnn_strides, cnn_paddings, cnn_activations,
+                 max_pool_kernels, max_pool_strides, max_pool_paddings,
+                 rnn_input_size, rnn_out_dims, rnn_activations,
+                 cnn_dropout, rnn_dropout_input, rnn_dropout_recurrent,
+                 rnn_subsamplings, init=xavier_normal):
+        super(CNNRNNFastEncoder, self).__init__()
+
+        self.cnn_bottom = CNNBottom(cnn_channels_in, cnn_channels_out,
+                                    cnn_kernel_sizes, cnn_strides, cnn_paddings,
+                                    cnn_activations, max_pool_kernels,
+                                    max_pool_strides, max_pool_paddings,
+                                    cnn_dropout, init)
+
+        self.rnn_stack = nn.GRU(
+            input_size=rnn_input_size,
+            hidden_size=rnn_out_dims[0],
+            num_layers=len(rnn_out_dims),
+            bias=True,
+            batch_first=True,
+            dropout=rnn_dropout_recurrent,
+            bidirectional=True)
+
+    def forward(self, input_, output_length):
+        output = self.cnn_bottom(input_)
+        batch_size, timesteps, _ = output.size()
+        lengths = [timesteps] * batch_size
+        output = pack_padded_sequence(output, lengths, batch_first=True)
+        packed_output = self.rnn_stack(output)
+        return pad_packed_sequence(packed_output, batch_first=True)[0]
 
 
 class CNNRNNEncoder(nn.Module):
@@ -319,7 +349,8 @@ class CNNRNNEncoder(nn.Module):
         return self.rnn_out_dims[-1] * 2
 
     def forward(self, x, output_len):
-        output, o_size = self.cnn_bottom(x)
+        output = self.cnn_bottom(x)
+        o_size = output.size()
 
         for i in range(len(self.rnn_layers_f)):
             h_s_f = Variable(torch.zeros(o_size[0], o_size[1], self.rnn_out_dims[i+1]))
