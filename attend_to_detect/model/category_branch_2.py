@@ -221,7 +221,7 @@ class CNNBottom(nn.Module):
         output = output.permute(0, 2, 1, 3)
         o_size = output.size()
         output = output.resize(o_size[0], o_size[1], o_size[2] * o_size[3])
-        return output
+        return output.contiguous()
 
 
 class CNNRNNFastEncoder(nn.Module):
