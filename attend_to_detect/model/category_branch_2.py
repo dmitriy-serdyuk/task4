@@ -203,13 +203,13 @@ class CNNBottom(nn.Module):
 
     def initialize(self, init):
         for module in self.cnn_layers:
-            xavier_normal(module.weight.data)
+            init(module.weight.data)
             constant(module.bias.data, 0)
 
-    def forward(self, *input):
+    def forward(self, input_):
         output = self.pooling_layers[0](self.bn_layers[0](
             self.cnn_activations[0](self.cnn_layers[0](
-                self.cnn_dropout_layers[0](x)
+                self.cnn_dropout_layers[0](input_)
             ))
         ))
 
