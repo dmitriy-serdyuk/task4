@@ -131,22 +131,18 @@ class MLPDecoder(nn.Module):
         return output, weights
 
 
-class CNNRNNEncoder(nn.Module):
+class CNNBottom(nn.Module):
     def __init__(self,
                  cnn_channels_in, cnn_channels_out,
                  cnn_kernel_sizes, cnn_strides, cnn_paddings, cnn_activations,
                  max_pool_kernels, max_pool_strides, max_pool_paddings,
-                 rnn_input_size, rnn_out_dims, rnn_activations,
-                 dropout_cnn, dropout_rnn_input, dropout_rnn_recurrent,
-                 rnn_subsamplings, init=xavier_normal):
-
-        super(CNNRNNEncoder, self).__init__()
+                 dropout_cnn, init=xavier_normal):
+        super(CNNBottom, self).__init__()
 
         if type(cnn_channels_out) is not list:
             raise AttributeError('Channels out must be a list of len '
                                  'equal to the desired amount of conv '
                                  'layers')
-
         self.cnn_channels_out = [cnn_channels_in] + cnn_channels_out
 
         cnn_len = len(self.cnn_channels_out) - 1
@@ -160,45 +156,22 @@ class CNNRNNEncoder(nn.Module):
         self.max_pool_strides = make_me_a_list(max_pool_strides, cnn_len)
         self.max_pool_paddings = make_me_a_list(max_pool_paddings, cnn_len)
 
-        self.rnn_out_dims = [rnn_input_size] + rnn_out_dims
-        rnn_len = len(self.rnn_out_dims) - 1
-        self.rnn_activations_f = make_me_a_list(rnn_activations, rnn_len)
-        self.rnn_activations_b = make_me_a_list(rnn_activations, rnn_len)
-
-        self.rnn_subsamplings = make_me_a_list(rnn_subsamplings, rnn_len - 1) + [1]
-
         self.dropout_cnn = dropout_cnn
-        self.dropout_rnn_input_f = dropout_rnn_input
-        self.dropout_rnn_input_b = dropout_rnn_input
-        self.dropout_rnn_recurrent_f = dropout_rnn_recurrent
-        self.dropout_rnn_recurrent_b = dropout_rnn_recurrent
 
-        all_cnn_have_proper_len = all([
-            len(a) == cnn_len
-            for a in [
-                self.cnn_kernel_sizes, self.cnn_strides,
-                self.cnn_paddings, self.cnn_activations
-            ]
-        ])
+        all_cnn_have_proper_len = all(
+            [len(a) == cnn_len
+             for a in [
+                 self.cnn_kernel_sizes, self.cnn_strides,
+                 self.cnn_paddings, self.cnn_activations
+             ]])
 
         if not all_cnn_have_proper_len:
             raise AttributeError('Either provide arguments for all layers or '
                                  'just one (except of channels out)')
-
-        if not len(self.rnn_activations_f) == len(self.rnn_out_dims) - 1:
-            raise AttributeError('Amount of rnn activations should be equal to '
-                                 'the specified output dims of rnns')
-
         self.cnn_layers = []
         self.cnn_dropout_layers = []
         self.bn_layers = []
         self.pooling_layers = []
-        self.rnn_layers_f = []
-        self.rnn_layers_b = []
-        self.rnn_dropout_layers_input_f = []
-        self.rnn_dropout_layers_recurrent_f = []
-        self.rnn_dropout_layers_input_b = []
-        self.rnn_dropout_layers_recurrent_b = []
 
         for i in range(len(self.cnn_channels_out) - 1):
             self.cnn_layers.append(torch.nn.Conv2d(
@@ -220,11 +193,81 @@ class CNNRNNEncoder(nn.Module):
                 torch.nn.Dropout2d(self.dropout_cnn)
             )
 
-            setattr(self, 'cnn_layer_{}'.format(i+1), self.cnn_layers[-1])
-            setattr(self, 'bn_layer_{}'.format(i+1), self.bn_layers[-1])
-            setattr(self, 'pool_layer_{}'.format(i+1), self.pooling_layers[-1])
-            setattr(self, 'cnn_dropout_layer_{}'.format(i+1), self.cnn_dropout_layers[-1])
-            setattr(self, 'cnn_activation_{}'.format(i + 1), self.cnn_activations[i])
+            self.add_module('cnn_layer_{}'.format(i+1), self.cnn_layers[-1])
+            self.add_module('bn_layer_{}'.format(i+1), self.bn_layers[-1])
+            self.add_module(
+                'pool_layer_{}'.format(i+1), self.pooling_layers[-1])
+            self.add_module(
+                'cnn_dropout_layer_{}'.format(i+1), self.cnn_dropout_layers[-1])
+            self.add_module(
+                'cnn_activation_{}'.format(i + 1), self.cnn_activations[i])
+        self.initialize(init)
+
+    def initialize(self, init):
+        for module in self.cnn_layers:
+            xavier_normal(module.weight.data)
+            constant(module.bias.data, 0)
+
+    def forward(self, *input):
+        output = self.pooling_layers[0](self.bn_layers[0](
+            self.cnn_activations[0](self.cnn_layers[0](
+                self.cnn_dropout_layers[0](x)
+            ))
+        ))
+
+        for dropout, pooling, bn, activation, cnn in zip(
+                self.cnn_dropout_layers[1:],
+                self.pooling_layers[1:],
+                self.bn_layers[1:],
+                self.cnn_activations[1:],
+                self.cnn_layers[1:]):
+            output = pooling(bn(activation(cnn(dropout(output)))))
+
+        output = output.permute(0, 2, 1, 3)
+        o_size = output.size()
+        output = output.resize(o_size[0], o_size[1], o_size[2] * o_size[3])
+        o_size = output.size()
+        return output, o_size
+
+
+class CNNRNNEncoder(nn.Module):
+    def __init__(self,
+                 cnn_channels_in, cnn_channels_out,
+                 cnn_kernel_sizes, cnn_strides, cnn_paddings, cnn_activations,
+                 max_pool_kernels, max_pool_strides, max_pool_paddings,
+                 rnn_input_size, rnn_out_dims, rnn_activations,
+                 dropout_cnn, dropout_rnn_input, dropout_rnn_recurrent,
+                 rnn_subsamplings, init=xavier_normal):
+        super(CNNRNNEncoder, self).__init__()
+
+        self.cnn_bottom = CNNBottom(cnn_channels_in, cnn_channels_out,
+                                    cnn_kernel_sizes, cnn_strides, cnn_paddings,
+                                    cnn_activations, max_pool_kernels,
+                                    max_pool_strides, max_pool_paddings,
+                                    dropout_cnn, init)
+
+        self.rnn_out_dims = [rnn_input_size] + rnn_out_dims
+        rnn_len = len(self.rnn_out_dims) - 1
+        self.rnn_activations_f = make_me_a_list(rnn_activations, rnn_len)
+        self.rnn_activations_b = make_me_a_list(rnn_activations, rnn_len)
+
+        self.rnn_subsamplings = make_me_a_list(rnn_subsamplings, rnn_len - 1) + [1]
+
+        self.dropout_rnn_input_f = dropout_rnn_input
+        self.dropout_rnn_input_b = dropout_rnn_input
+        self.dropout_rnn_recurrent_f = dropout_rnn_recurrent
+        self.dropout_rnn_recurrent_b = dropout_rnn_recurrent
+
+        if not len(self.rnn_activations_f) == len(self.rnn_out_dims) - 1:
+            raise AttributeError('Amount of rnn activations should be equal to '
+                                 'the specified output dims of rnns')
+
+        self.rnn_layers_f = []
+        self.rnn_layers_b = []
+        self.rnn_dropout_layers_input_f = []
+        self.rnn_dropout_layers_recurrent_f = []
+        self.rnn_dropout_layers_input_b = []
+        self.rnn_dropout_layers_recurrent_b = []
 
         for i in range(len(self.rnn_out_dims) - 1):
             if i > 0:
@@ -270,9 +313,6 @@ class CNNRNNEncoder(nn.Module):
         self.initialize(init)
 
     def initialize(self, init):
-        for module in self.cnn_layers:
-            xavier_normal(module.weight.data)
-            constant(module.bias.data, 0)
         for module in self.rnn_layers_f + self.rnn_layers_b:
             init_gru_cell(module, init)
 
@@ -281,24 +321,7 @@ class CNNRNNEncoder(nn.Module):
         return self.rnn_out_dims[-1] * 2
 
     def forward(self, x, output_len):
-        output = self.pooling_layers[0](self.bn_layers[0](
-            self.cnn_activations[0](self.cnn_layers[0](
-                self.cnn_dropout_layers[0](x)
-            ))
-        ))
-
-        for dropout, pooling, bn, activation, cnn in zip(
-                self.cnn_dropout_layers[1:],
-                self.pooling_layers[1:],
-                self.bn_layers[1:],
-                self.cnn_activations[1:],
-                self.cnn_layers[1:]):
-            output = pooling(bn(activation(cnn(dropout(output)))))
-
-        output = output.permute(0, 2, 1, 3)
-        o_size = output.size()
-        output = output.resize(o_size[0], o_size[1], o_size[2] * o_size[3])
-        o_size = output.size()
+        output, o_size = self.cnn_bottom(x)
 
         for i in range(len(self.rnn_layers_f)):
             h_s_f = Variable(torch.zeros(o_size[0], o_size[1], self.rnn_out_dims[i+1]))
