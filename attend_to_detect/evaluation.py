@@ -257,8 +257,12 @@ def validate(valid_data, model, scaler, logger, total_iterations, epoch):
 
     def get_dicts(prediction):
         pred_list = []
-        prediction = prediction.reshape(17, 3)
-        for i in np.where(np.argmax(prediction, 1) == 2)[0]:
+        if prediction.shape[0] == 17:
+            classes = np.where(prediction >= 0.5)[0]
+        else:
+            prediction = prediction.reshape(17, 3)
+            classes = np.where(np.argmax(prediction, 1) == 2)[0]
+        for i in classes:
             pred_list.append(
                 dict(event_onset=0.,
                      event_offset=10.,
