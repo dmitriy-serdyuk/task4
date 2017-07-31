@@ -196,7 +196,7 @@ class CTCModel(nn.Module):
 
         output_sizes = Variable(
             torch.IntTensor([output.size(0)] * output.size(1)))
-        label_sizes = torch.ones(*target.size())
+        label_sizes = Variable(torch.ones(*target.size()))
         return self.loss(output, target, output_sizes, label_sizes) / batch_size
 
     def probs(self, output):
