@@ -255,7 +255,7 @@ class CNNRNNFastEncoder(nn.Module):
         lengths = [timesteps] * batch_size
         output = pack_padded_sequence(output, lengths, batch_first=True)
         packed_output, _ = self.rnn_stack(output)
-        return pad_packed_sequence(packed_output, batch_first=True)[0]
+        return pad_packed_sequence(packed_output, batch_first=True)[0].contiguous()
 
 
 class CNNRNNEncoder(nn.Module):
