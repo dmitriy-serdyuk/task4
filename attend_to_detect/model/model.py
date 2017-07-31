@@ -146,8 +146,7 @@ class CTCModel(nn.Module):
         self.loss = CTCLoss()
 
     def forward(self, input, output_length):
-        contexts = self.encoder(input, output_length)
-        context = torch.cat(contexts, -1)
+        context = self.encoder(input, output_length)
         flat_context = self.flatten(context)
         flat_decoded = self.decoder(flat_context)
         return self.unflatten(flat_decoded, context.size())
