@@ -181,14 +181,12 @@ class CTCModel(nn.Module):
     def prepare_target(self, target):
         """
 
-        :param target: (B, T, C) one-hot tensor
-        :return: (BxC, T) integer target for CTC loss
+        :param target: (B, C) one-hot tensor
+        :return: (BxC, 1) integer target for CTC loss
         """
-        batch_size, timesteps, class_size = target.size()
+        batch_size, class_size = target.size()
         # (B, C, T)
-        target = target.transpose(1, 2).contiguous()
-        # (BxC, T)
-        target = target.view(batch_size * class_size, timesteps)
+        target = target.view(batch_size * class_size, 1)
         return target.int().cpu() + 1
 
     def cost(self, output, target):
