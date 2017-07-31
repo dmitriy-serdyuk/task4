@@ -199,8 +199,6 @@ class CNNBottom(nn.Module):
                 'pool_layer_{}'.format(i+1), self.pooling_layers[-1])
             self.add_module(
                 'cnn_dropout_layer_{}'.format(i+1), self.cnn_dropout_layers[-1])
-            self.add_module(
-                'cnn_activation_{}'.format(i + 1), self.cnn_activations[i])
         self.initialize(init)
 
     def initialize(self, init):
