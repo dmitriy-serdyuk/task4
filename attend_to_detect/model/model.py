@@ -159,42 +159,47 @@ class CTCModel(nn.Module):
     def unflatten(self, tensor, size):
         return tensor.view(size[0], size[1], tensor.size(1))
 
-    def prepare_output(self, output, concat=True):
+    def prepare_output(self, output):
         """
 
-        :param output: (B, T, C) output or one-hot label
-        :return:
+        :param output: (B, T, C * 3) tensor
+        :return: (T, BxC, 3) tensor for CTC loss
         """
-        # (B, C, T)
+        batch_size, timesteps, class_size_t = output.size()
+        class_size = class_size_t // 3
+        # (B, T, C, 3)
+        output = output.view(
+            batch_size, timesteps, class_size, class_size, 3)
+        # (B, C, T, 3)
         output = output.transpose(1, 2).contiguous()
-        # (BxC, T, 1)
-        output = output.view(-1, output.size(2), 1)
-        # (BxC, T, 2): [-act, act]
-        if concat:
-            output = torch.cat([-output, output], -1)
-        else:
-            output = output[:, :, 0]
-
-        # (T, BxC, 2): for CTC loss
+        # (BxC, T, 3)
+        output = output.view(batch_size * timesteps, timesteps, 3)
+        # (T, BxC, 3): for CTC loss
         output = output.transpose(0, 1).contiguous()
         return output
 
+    def prepare_target(self, target):
+        """
+
+        :param target: (B, T, C) one-hot tensor
+        :return: (BxC, T) integer target for CTC loss
+        """
+        batch_size, timesteps, class_size = target.size()
+        # (B, C, T)
+        target = target.transpose(1, 2).contiguous()
+        # (BxC, T)
+        target = target.view(batch_size * class_size, timesteps)
+        return target.int().cpu() + 1
+
     def cost(self, output, target):
         batch_size = output.size(0)
-        #output = torch.log(self.probs(output))
         output = self.prepare_output(output)
-
-        target = self.prepare_output(
-                target.unsqueeze(1), concat=False).int().cpu()
-        target_dummy = Variable(torch.ones(target.size()).int())
-        #target = target_dummy  #torch.cat(
-        #    [target, target_dummy, target_dummy, target_dummy], 0)
+        target = self.prepare_target(target)
 
         output_sizes = Variable(
             torch.IntTensor([output.size(0)] * output.size(1)))
-        label_sizes = 0 * (1 - target[0]) + target[0]
+        label_sizes = torch.ones(*target.size())
         return self.loss(output, target, output_sizes, label_sizes) / batch_size
-        #return ((output - target.cuda().float().unsqueeze(2).expand_as(output))**2).sum()
 
     def probs(self, output):
         return sigmoid(output)

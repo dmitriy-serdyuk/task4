@@ -52,9 +52,9 @@ def main():
     # The alarm branch layers
     encoder = CNNRNNEncoder(**config.encoder_config)
 
-    decoder = torch.nn.Linear(config.network_decoder_dim, len(all_classes))
+    decoder = torch.nn.Linear(config.network_decoder_dim, len(all_classes) * 3)
     torch.nn.init.constant(decoder.bias.data, -0.)
-    torch.nn.init.xavier_uniform(decoder.weight.data) * 0.1
+    torch.nn.init.xavier_uniform(decoder.weight.data)
 
     model = CTCModel(encoder, decoder)
 
