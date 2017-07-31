@@ -173,7 +173,7 @@ class CTCModel(nn.Module):
         # (B, C, T, 3)
         output = output.transpose(1, 2).contiguous()
         # (BxC, T, 3)
-        output = output.view(batch_size * timesteps, timesteps, 3)
+        output = output.view(batch_size * class_size, timesteps, 3)
         # (T, BxC, 3): for CTC loss
         output = output.transpose(0, 1).contiguous()
         return output
